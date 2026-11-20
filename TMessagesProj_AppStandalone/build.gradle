@@ -107,7 +107,7 @@ android {
     productFlavors {
         afat {
             ndk {
-                abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+                abiFilters "arm64-v8a" // arm64-only: modern phones, ~4x faster native build in CI
             }
             ext {
                 abiVersionCode = 9
@@ -164,3 +164,4 @@ android {
 }
 
 apply plugin: 'com.google.gms.google-services'
+
