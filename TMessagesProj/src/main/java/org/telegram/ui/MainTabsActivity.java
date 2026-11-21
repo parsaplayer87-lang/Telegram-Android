@@ -81,6 +81,8 @@ import org.telegram.utils.glass.GlassEngine;
 import org.telegram.utils.glass.GlassSettings;
 import org.telegram.utils.glass.source.GlassSourceColor;
 import org.telegram.utils.glass.source.GlassSourceRenderNode;
+import org.telegram.liquidglass.GlassBarState;
+import org.telegram.liquidglass.TelegramGlassBar;
 import org.telegram.ui.Components.chat.ViewPositionWatcher;
 import org.telegram.ui.Components.glass.GlassTabView;
 import org.telegram.ui.Stories.recorder.HintView2;
@@ -124,6 +126,8 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
     private MainTabsLayout tabsView;
     private BlurredBackgroundDrawable tabsViewBackground;
     private View fadeView;
+    private GlassBarState glassBarState;
+    private View glassBarView;
 
     public MainTabsActivity() {
         super();
@@ -302,8 +306,10 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             }
             if (Build.VERSION.SDK_INT >= 23 && UserConfig.getInstance(currentAccount).syncContacts && !hasPermission && MessagesController.getGlobalNotificationsSettings().getBoolean("askAboutContacts2", true)) {
                 tabs[INDEX_CONTACTS].setCounter("!", true, true);
+                if (glassBarState != null) glassBarState.setBadge(1, "!");
             } else {
                 tabs[INDEX_CONTACTS].setCounter(null, true, true);
+                if (glassBarState != null) glassBarState.setBadge(1, null);
             }
         }
     }
@@ -399,7 +405,38 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         tabsViewWrapper = new FrameLayout(context);
         tabsViewWrapper.setOnClickListener(v -> {});
         tabsViewWrapper.addView(tabsView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, DialogsActivity.MAIN_TABS_HEIGHT_WITH_MARGINS, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
+        tabsView.setVisibility(View.GONE);
         tabsViewWrapper.setClipToPadding(false);
+
+        glassBarState = new GlassBarState();
+        glassBarState.setTabCount(TABS_COUNT);
+        glassBarState.setLabel(0, getString(R.string.MainTabsChats));
+        glassBarState.setIcon(0, GlassBarState.ICON_CHAT);
+        glassBarState.setLabel(1, getString(R.string.MainTabsContacts));
+        glassBarState.setIcon(1, GlassBarState.ICON_CONTACTS);
+        glassBarState.setLabel(2, getUserConfig().showCallsTab ? getString(R.string.MainTabsCalls) : getString(R.string.Settings));
+        glassBarState.setIcon(2, getUserConfig().showCallsTab ? GlassBarState.ICON_CALLS : GlassBarState.ICON_SETTINGS);
+        glassBarState.setLabel(3, getString(R.string.MainTabsProfile));
+        glassBarState.setIcon(3, GlassBarState.ICON_PROFILE);
+        glassBarState.setSelectedIndex(viewPager.getCurrentPosition());
+        glassBarState.setOnSelect(index -> {
+            if (viewPager.isManualScrolling() || viewPager.isTouch()) {
+                return;
+            }
+            if (viewPager.getCurrentPosition() == index) {
+                final BaseFragment fragment = getCurrentVisibleFragment();
+                if (fragment instanceof MainTabsActivity.TabFragmentDelegate) {
+                    ((MainTabsActivity.TabFragmentDelegate) fragment).onParentScrollToTop();
+                }
+                return;
+            }
+            selectTab(index, true);
+            viewPager.scrollToPosition(index);
+        });
+        glassBarState.setDrawer((canvas, w, h) -> drawGlassContent(canvas, w, h));
+        glassBarView = TelegramGlassBar.createView(context, glassBarState);
+        tabsViewWrapper.addView(glassBarView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, DialogsActivity.MAIN_TABS_HEIGHT_WITH_MARGINS, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
+
         contentView.addView(tabsViewWrapper, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM));
 
         updateLayoutWrapper = new UpdateLayoutWrapper(context);
@@ -424,8 +461,10 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         if (unreadCount > 0) {
             final String unreadCountFmt = LocaleController.formatNumber(unreadCount, ',');
             tabs[INDEX_CHATS].setCounter(unreadCountFmt, false, animated);
+            if (glassBarState != null) glassBarState.setBadge(0, unreadCountFmt);
         } else {
             tabs[INDEX_CHATS].setCounter(null, false, animated);
+            if (glassBarState != null) glassBarState.setBadge(0, null);
         }
     }
 
@@ -871,6 +910,9 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             GlassTabView tab = tabs[a];
             tab.setSelected(indexToPosition(a) == position, animated);
         }
+        if (glassBarState != null) {
+            glassBarState.setSelectedIndex(position);
+        }
     }
 
     public void setGestureSelectedOverride(float animatedPosition, boolean allow) {
@@ -1102,16 +1144,20 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
         final float scale = lerp(0.85f, 1f, factor);
 
         tabsViewWrapper.setTranslationY(lerp(hiddenY, normalY, factor));
-        tabsView.setClickable(factor > 1);
-        tabsView.setEnabled(factor > 1);
-        tabsView.setAlpha(factor);
-        tabsView.setVisibility(factor > 0 ? View.VISIBLE : View.GONE);
+        if (glassBarView != null) {
+            glassBarView.setAlpha(factor);
+            glassBarView.setVisibility(factor > 0 ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void checkUi_callTabVisible(boolean callTabsVisible, boolean animated) {
         if (tabsView != null) {
             tabsView.setViewVisible(tabs[INDEX_SETTINGS], !callTabsVisible, animated);
             tabsView.setViewVisible(tabs[INDEX_CALLS], callTabsVisible, animated);
+        }
+        if (glassBarState != null) {
+            glassBarState.setLabel(2, callTabsVisible ? getString(R.string.MainTabsCalls) : getString(R.string.Settings));
+            glassBarState.setIcon(2, callTabsVisible ? GlassBarState.ICON_CALLS : GlassBarState.ICON_SETTINGS);
         }
     }
 
@@ -1274,6 +1320,31 @@ public class MainTabsActivity extends ViewPagerActivity implements NotificationC
             source.setSize(width, height);
             source.updateDisplayListIfNeeded();
         }
+        if (iBlur3SourceTabGlass != null && source != iBlur3SourceTabGlass) {
+            iBlur3SourceTabGlass.setSize(width, height);
+            iBlur3SourceTabGlass.updateDisplayListIfNeeded();
+        }
+        if (glassBarState != null) {
+            glassBarState.invalidateContent();
+        }
+    }
+
+    /** Bridges Telegram's live captured page content into the Kyant Compose glass backdrop. */
+    private void drawGlassContent(Canvas canvas, float w, float h) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || iBlur3SourceTabGlass == null || contentView == null || glassBarState == null) {
+            return;
+        }
+        if (!canvas.isHardwareAccelerated()) {
+            return;
+        }
+        final int[] root = new int[2];
+        contentView.getLocationInWindow(root);
+        final float ox = glassBarState.getBarLeft() - root[0];
+        final float oy = glassBarState.getBarTop() - root[1];
+        canvas.save();
+        canvas.translate(-ox, -oy);
+        iBlur3SourceTabGlass.draw(canvas, ox, oy, ox + w, oy + h);
+        canvas.restore();
     }
 
     private void blur3_updateFadeColors() {
