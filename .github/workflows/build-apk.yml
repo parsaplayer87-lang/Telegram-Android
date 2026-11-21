@@ -43,11 +43,11 @@ jobs:
           grep -q "APP_ID = ${TG_API_ID};" "$f"
           grep -q "APP_HASH = \"${TG_API_HASH}\";" "$f"
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
